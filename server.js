@@ -122,6 +122,32 @@ app.get("/stream", async (req, res) => {
     }
 });
 
+// Simple health endpoint for Render
+app.get("/health", (req, res) => {
+    res.status(200).json({ status: "ok" });
+});
+
+// If PUPPETEER_EXECUTABLE_PATH not set, try common container paths
+if (!process.env.PUPPETEER_EXECUTABLE_PATH) {
+    const possible = [
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/google-chrome"
+    ];
+    for (const p of possible) {
+        try {
+            if (fs.existsSync(p)) {
+                process.env.PUPPETEER_EXECUTABLE_PATH = p;
+                console.log(`Using Chrome executable: ${p}`);
+                break;
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
+}
+
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Server running at http://0.0.0.0:${PORT}`);
 });

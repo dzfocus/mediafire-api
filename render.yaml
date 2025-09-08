@@ -2,9 +2,14 @@ services:
   - type: web
     name: mediafire-api
     env: node
-    buildCommand: "npm install"
+    # Install dependencies and explicitly download Chromium for Puppeteer during build
+    buildCommand: "npm ci && npx puppeteer@24.19.0 install --product=chrome"
     startCommand: "node server.js"
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PUPPETEER_CACHE_DIR
+        value: /tmp/.cache/puppeteer
+      - key: PUPPETEER_SKIP_DOWNLOAD
+        value: "false"
     plan: free
