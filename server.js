@@ -65,48 +65,108 @@ async function getDirectLink(mediafireUrl) {
     }
 
     const page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 800 });
     await page.setUserAgent(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
         "AppleWebKit/537.36 (KHTML, like Gecko) " +
         "Chrome/120 Safari/537.36"
     );
 
-    await page.goto(mediafireUrl, { waitUntil: "domcontentloaded" });
-    if (page.waitForTimeout) {
-        await page.waitForTimeout(8000);
-    } else {
-       // await page.waitFor(8000);
+    // Try to load the page and wait for network idle
+    try {
+        await page.goto(mediafireUrl, { waitUntil: "networkidle2", timeout: 30000 });
+    } catch (e) {
+        console.warn('networkidle2 failed, falling back to domcontentloaded:', e.message);
+        await page.goto(mediafireUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
     }
+
+    // give JS time to render
+    await page.waitForTimeout(3000);
 
     let directLink = null;
 
-    try {
-        await page.waitForSelector("a#downloadButton", { timeout: 15000 });
+    // Try multiple selector strategies
+    const selectors = [
+        'a#downloadButton',
+        'a.dlButton',
+        'a[aria-label="Download"]',
+        'a[role="button"][href]',
+        'a[href*="/d/"]',
+        'a[href*="download"]'
+    ];
 
-        directLink = await page.$eval("a#downloadButton", el => {
-            if (el.href && el.href !== "javascript:void(0)") {
-                return el.href;
-            }
-            const scrambled = el.getAttribute("data-scrambled-url");
-            return scrambled ? scrambled : null;
-        });
+    for (const sel of selectors) {
+        try {
+            const el = await page.$(sel);
+            if (!el) continue;
 
-        // Decode scrambled if base64
-        if (directLink && !directLink.startsWith("http")) {
-            try {
-                const buff = Buffer.from(directLink, "base64");
-                const decoded = buff.toString("utf-8");
-                if (decoded.startsWith("http")) {
-                    directLink = decoded;
-                }
-            } catch (e) {
-                throw new Error("Scrambled URL decode failed");
+            // Try to get href or data attribute
+            const href = await page.$eval(sel, e => e.href || e.getAttribute('data-scrambled-url') || e.getAttribute('href'));
+            if (href && href.startsWith('http')) {
+                directLink = href;
+                console.log('Found direct link via selector', sel, directLink);
+                break;
             }
+
+            // If href isn't direct, try click flow
+            console.log('Clicking selector to trigger download/navigation:', sel);
+            await Promise.all([
+                page.click(sel).catch(() => {}),
+                page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {})
+            ]);
+
+            // After click, check current URL or look for a redirect link
+            const current = page.url();
+            if (current && current.startsWith('http') && !current.includes('mediafire.com/folder')) {
+                directLink = current;
+                console.log('Found direct link after click (page.url):', directLink);
+                break;
+            }
+
+            // Try to find any anchor that looks like a file link
+            const possible = await page.$$eval('a', as => as.map(a => a.href).filter(Boolean));
+            const candidate = possible.find(u => /https?:\/\/.+\.(zip|mp4|mp3|mkv|jpg|png|pdf)/i.test(u));
+            if (candidate) {
+                directLink = candidate;
+                console.log('Found candidate file link on page:', candidate);
+                break;
+            }
+        } catch (e) {
+            console.warn('Selector check failed for', sel, e.message);
         }
-    } catch (err) {
-        await page.screenshot({ path: "debug.png", fullPage: true });
+    }
+
+    // Meta refresh fallback
+    if (!directLink) {
+        try {
+            const meta = await page.$eval('meta[http-equiv="refresh"]', el => el.getAttribute('content'));
+            if (meta) {
+                const m = meta.match(/url=(.+)/i);
+                if (m) {
+                    directLink = m[1];
+                    console.log('Found link via meta refresh:', directLink);
+                }
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    // Decode scrambled if base64
+    if (directLink && !directLink.startsWith('http')) {
+        try {
+            const buff = Buffer.from(directLink, 'base64');
+            const decoded = buff.toString('utf-8');
+            if (decoded.startsWith('http')) directLink = decoded;
+        } catch (e) {
+            console.warn('Scrambled URL decode failed:', e.message);
+        }
+    }
+
+    if (!directLink) {
+        await page.screenshot({ path: 'debug.png', fullPage: true });
         await browser.close();
-        throw new Error("Could not extract link. Screenshot saved to debug.png");
+        throw new Error('Could not extract link. Screenshot saved to debug.png');
     }
 
     await browser.close();
