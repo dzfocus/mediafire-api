@@ -1,33 +1,11 @@
 services:
   - type: web
     name: mediafire-api
-    env: node
-    buildCommand: |
-      # Add Chrome repo and install Chrome
-      sudo apt-get update \
-      && sudo apt-get install -y wget gnupg \
-      && sudo wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add - \
-      && sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list' \
-      && sudo apt-get update \
-      && sudo apt-get install -y google-chrome-stable fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-khmeros fonts-kacst fonts-freefont-ttf libxss1 \
-      && google-chrome-stable --version \
-      && npm ci
-    startCommand: "node server.js"
+    env: docker
+    dockerfilePath: Dockerfile
+    buildCommand: ""
+    startCommand: ""
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PUPPETEER_EXECUTABLE_PATH
-        value: /usr/bin/google-chrome-stable - type: web
-    name: mediafire-api
-    env: node
-  # Create cache dir and install Chromium for Puppeteer into Render's cache path during build
-  buildCommand: "mkdir -p /opt/render/.cache/puppeteer && export PUPPETEER_CACHE_DIR=/opt/render/.cache/puppeteer && npm ci && npx puppeteer@24.19.0 install --product=chrome"
-    startCommand: "node server.js"
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PUPPETEER_CACHE_DIR
-        value: /opt/render/.cache/puppeteer
-      - key: PUPPETEER_SKIP_DOWNLOAD
-        value: "false"
     plan: free
