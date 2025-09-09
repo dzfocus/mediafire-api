@@ -1,15 +1,48 @@
 import express from "express";
 import fetch from "node-fetch";
 import puppeteer from "puppeteer";
-import fs from "fs";
+import fs from "fs/promises";
+import { execSync } from "child_process";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Setup Puppeteer environment
+async function setupPuppeteerEnv() {
+    const renderCache = "/opt/render/.cache/puppeteer";
+    const localCache = join(__dirname, ".cache/puppeteer");
+    
+    // Try Render's cache first, then local
+    const cacheDir = process.env.PUPPETEER_CACHE_DIR || 
+        (await fs.access(renderCache).then(() => renderCache).catch(() => localCache));
+    
+    process.env.PUPPETEER_CACHE_DIR = cacheDir;
+    console.log(`Using Puppeteer cache dir: ${cacheDir}`);
+    
+    try {
+        // Ensure Chrome is installed
+        console.log("Checking Chrome installation...");
+        await fs.mkdir(cacheDir, { recursive: true });
+        execSync("npx puppeteer browsers install chrome", { stdio: "inherit" });
+        console.log("Chrome installation verified");
+    } catch (err) {
+        console.warn("Warning: Chrome installation check failed:", err.message);
+        // Continue anyway - might have existing installation
+    }
+}
 
 /**
  * Extract direct MediaFire download link
  */
 async function getDirectLink(mediafireUrl) {
+    // Ensure Puppeteer env is setup before launch
+    await setupPuppeteerEnv();
+    
     const browser = await puppeteer.launch({
         headless: true,
         args: [
@@ -18,7 +51,11 @@ async function getDirectLink(mediafireUrl) {
             "--disable-dev-shm-usage",
             "--single-process",
             "--no-zygote"
-        ]
+        ],
+        // Try to use installed Chrome or let Puppeteer find its Chrome
+        ...(process.env.PUPPETEER_EXECUTABLE_PATH && {
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH
+        })
     });
 
     const page = await browser.newPage();
@@ -127,39 +164,11 @@ app.get("/health", (req, res) => {
     res.status(200).json({ status: "ok" });
 });
 
-// If PUPPETEER_EXECUTABLE_PATH not set, try common container paths
-if (!process.env.PUPPETEER_EXECUTABLE_PATH) {
-    const possible = [
-        "/usr/bin/chromium-browser",
-        "/usr/bin/chromium",
-        "/usr/bin/google-chrome-stable",
-        "/usr/bin/google-chrome"
-    ];
-    for (const p of possible) {
-        try {
-            if (fs.existsSync(p)) {
-                process.env.PUPPETEER_EXECUTABLE_PATH = p;
-                console.log(`Using Chrome executable: ${p}`);
-                break;
-            }
-        } catch (e) {
-            // ignore
-        }
-    }
-}
-
-// Ensure Puppeteer cache dir points to Render's cache when available
-if (!process.env.PUPPETEER_CACHE_DIR) {
-    const renderCache = "/opt/render/.cache/puppeteer";
-    try {
-        if (fs.existsSync(renderCache)) {
-            process.env.PUPPETEER_CACHE_DIR = renderCache;
-            console.log(`Using Puppeteer cache dir: ${renderCache}`);
-        }
-    } catch (e) {
-        // ignore
-    }
-}
+// Initialize Puppeteer environment on startup
+setupPuppeteerEnv().catch(err => {
+    console.error("Failed to setup Puppeteer environment:", err);
+    // Continue startup anyway
+});
 
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Server running at http://0.0.0.0:${PORT}`);
