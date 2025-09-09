@@ -1,6 +1,8 @@
 import express from "express";
 import fetch from "node-fetch";
 import puppeteer from "puppeteer";
+import puppeteerExtra from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { execSync } from "child_process";
 import fs from "fs";
 
@@ -45,6 +47,8 @@ console.log(`Selected Chrome path: ${chromePath}`);
  */
 async function getDirectLink(mediafireUrl) {
     console.log('Launching browser with Chrome at:', chromePath);
+    // Use puppeteer-extra with stealth to reduce bot detection
+    puppeteerExtra.use(StealthPlugin());
     let browser;
     try {
         const launchOptions = {
@@ -54,11 +58,14 @@ async function getDirectLink(mediafireUrl) {
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--single-process",
-                "--no-zygote"
+                "--no-zygote",
+                "--disable-gpu",
+                "--window-size=1280,800"
             ]
         };
         if (chromePath) launchOptions.executablePath = chromePath;
-        browser = await puppeteer.launch(launchOptions);
+        // prefer puppeteer-extra launcher
+        browser = await puppeteerExtra.launch(launchOptions);
     } catch (e) {
         console.error('Failed to launch browser:', e);
         throw new Error(`Browser launch failed: ${e.message}`);
@@ -72,16 +79,19 @@ async function getDirectLink(mediafireUrl) {
         "Chrome/120 Safari/537.36"
     );
 
-    // Try to load the page and wait for network idle
+    // increase default timeouts for slow environments
+    page.setDefaultNavigationTimeout(60000);
+    page.setDefaultTimeout(60000);
+
+    // Try to load the page; prefer loading DOM and then wait for the download button explicitly
     try {
-        await page.goto(mediafireUrl, { waitUntil: "networkidle2", timeout: 30000 });
+        await page.goto(mediafireUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
     } catch (e) {
-        console.warn('networkidle2 failed, falling back to domcontentloaded:', e.message);
-        await page.goto(mediafireUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+        console.warn('domcontentloaded failed, will still attempt to continue:', e.message);
     }
 
     // give JS time to render
-    await new Promise((r) => setTimeout(r, 3000));
+    await new Promise((r) => setTimeout(r, 4000));
 
     let directLink = null;
 
@@ -108,12 +118,15 @@ async function getDirectLink(mediafireUrl) {
                 break;
             }
 
-            // If href isn't direct, try click flow
+            // If href isn't direct, try click flow and wait for selector/redirect
             console.log('Clicking selector to trigger download/navigation:', sel);
-            await Promise.all([
-                page.click(sel).catch(() => {}),
-                page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {})
-            ]);
+            await page.click(sel).catch(() => {});
+            // wait briefly for potential redirect or new button
+            await new Promise((r) => setTimeout(r, 3000));
+            // also try waiting for a direct download button to appear
+            try {
+                await page.waitForSelector('a#downloadButton', { timeout: 10000 });
+            } catch {}
 
             // After click, check current URL or look for a redirect link
             const current = page.url();
