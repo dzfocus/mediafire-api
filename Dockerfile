@@ -22,6 +22,11 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 RUN npm ci --only=production
 
+# Ensure Puppeteer can download/use the expected Chromium during build
+ENV PUPPETEER_CACHE_DIR=/usr/local/share/.cache/puppeteer
+RUN mkdir -p ${PUPPETEER_CACHE_DIR}
+RUN npx puppeteer@24.19.0 install --product=chrome --path=${PUPPETEER_CACHE_DIR}
+
 # Copy source
 COPY . .
 
