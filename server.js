@@ -148,6 +148,19 @@ if (!process.env.PUPPETEER_EXECUTABLE_PATH) {
     }
 }
 
+// Ensure Puppeteer cache dir points to Render's cache when available
+if (!process.env.PUPPETEER_CACHE_DIR) {
+    const renderCache = "/opt/render/.cache/puppeteer";
+    try {
+        if (fs.existsSync(renderCache)) {
+            process.env.PUPPETEER_CACHE_DIR = renderCache;
+            console.log(`Using Puppeteer cache dir: ${renderCache}`);
+        }
+    } catch (e) {
+        // ignore
+    }
+}
+
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Server running at http://0.0.0.0:${PORT}`);
 });
