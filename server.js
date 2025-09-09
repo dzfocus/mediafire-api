@@ -1,29 +1,66 @@
 import express from "express";
 import fetch from "node-fetch";
 import puppeteer from "puppeteer";
+import { execSync } from "child_process";
+import fs from "fs";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Verify Chrome setup on startup
-const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
-console.log(`Using Chrome at: ${chromePath}`);
+// Find Chrome executable
+function findChrome() {
+    const paths = [
+        process.env.PUPPETEER_EXECUTABLE_PATH,
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser'
+    ].filter(Boolean); // Remove undefined entries
+
+    console.log('Searching for Chrome in paths:', paths);
+    
+    for (const path of paths) {
+        if (fs.existsSync(path)) {
+            try {
+                // Try to execute Chrome --version
+                const version = execSync(`${path} --version`).toString();
+                console.log(`Found Chrome at ${path}, version: ${version.trim()}`);
+                return path;
+            } catch (e) {
+                console.log(`Chrome at ${path} exists but may not be executable:`, e.message);
+            }
+        } else {
+            console.log(`Chrome not found at ${path}`);
+        }
+    }
+    throw new Error('No usable Chrome installation found');
+}
+
+const chromePath = findChrome();
+console.log(`Selected Chrome path: ${chromePath}`);
 
 /**
  * Extract direct MediaFire download link
  */
 async function getDirectLink(mediafireUrl) {
-    const browser = await puppeteer.launch({
-        headless: true,
-        executablePath: chromePath,
-        args: [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--single-process",
-            "--no-zygote"
-        ]
-    });
+    console.log('Launching browser with Chrome at:', chromePath);
+    let browser;
+    try {
+        browser = await puppeteer.launch({
+            headless: true,
+            executablePath: chromePath,
+            args: [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--single-process",
+                "--no-zygote"
+            ]
+        });
+    } catch (e) {
+        console.error('Failed to launch browser:', e);
+        throw new Error(`Chrome launch failed: ${e.message}`);
+    }
 
     const page = await browser.newPage();
     await page.setUserAgent(
