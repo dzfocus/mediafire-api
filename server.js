@@ -81,7 +81,7 @@ async function getDirectLink(mediafireUrl) {
     }
 
     // give JS time to render
-    await page.waitForTimeout(3000);
+    await new Promise((r) => setTimeout(r, 3000));
 
     let directLink = null;
 
