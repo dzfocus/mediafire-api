@@ -33,7 +33,8 @@ function findChrome() {
             console.log(`Chrome not found at ${path}`);
         }
     }
-    throw new Error('No usable Chrome installation found');
+    console.warn('No usable Chrome installation found, continuing without explicit executablePath');
+    return null;
 }
 
 const chromePath = findChrome();
@@ -46,9 +47,8 @@ async function getDirectLink(mediafireUrl) {
     console.log('Launching browser with Chrome at:', chromePath);
     let browser;
     try {
-        browser = await puppeteer.launch({
+        const launchOptions = {
             headless: true,
-            executablePath: chromePath,
             args: [
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
@@ -56,10 +56,12 @@ async function getDirectLink(mediafireUrl) {
                 "--single-process",
                 "--no-zygote"
             ]
-        });
+        };
+        if (chromePath) launchOptions.executablePath = chromePath;
+        browser = await puppeteer.launch(launchOptions);
     } catch (e) {
         console.error('Failed to launch browser:', e);
-        throw new Error(`Chrome launch failed: ${e.message}`);
+        throw new Error(`Browser launch failed: ${e.message}`);
     }
 
     const page = await browser.newPage();
